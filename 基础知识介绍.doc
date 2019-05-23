@@ -14,8 +14,35 @@
      ②当使用detach时，如果子线程有地址依赖于主线程中的零时变量，
      当主线程结束后，如果子线程还有任务没有完成，将会给程序带来不可预料的后果。
      
+     如:
+     #include <iostream>
+     #include <thread>
+     
+     class Ta{
+       public:
+       int m_i;
+       Ta(int& i) : m_i(i) {}
+       
+        void operator()(){
+            std::cout << "1_i = " << m_i << std::endl;
+            std::cout << "2_i = " << m_i << std::endl;
+            std::cout << "3_i = " << m_i << std::endl;
+            std::cout << "4_i = " << m_i << std::endl;
+        }
+     };
+     
+     int main(){
+        int i = 5;
+        Ta ta(i);
+        std::thread t(ta);
+        ta.detach();
+        
+        std::cout << "This is main thread." << std::endl;
+        
+        return 0;
+     }
   
-    
+    这种情况时，detach会引起一个bug。假如主线程执行完后，ta的空间将会被释放，但是子线程中还引用着i的地址，会产生不可预料的错误。
   
 2.
 3.
