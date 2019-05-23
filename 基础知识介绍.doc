@@ -67,7 +67,121 @@
       
       detach大坑之一：变量值传递时，当函数参数为值引用时，在多线程情况下，可能是一个假引用（形参引用的变量地址和原变量地址不同），
             而引入指针传递时，指针参数地址和指针变量相同，会造成主线程结束后，指针地址也会被销毁。
+      detach大坑之二：函数传值时，自定义结构体或传参类型要使用const 加引用进行约束，要不然，就会多次创建对象。入参需要将隐式转换显示转换
       
+      【重要】在传递类对象时要用引用，以免产生多次构造对象 
+      
+      【修改成员变量得值】引用main中的自定义类型或数据，使用std::ref， 才能使得print里能修改Ta里面得成员变量得值。
+      因为它们共用一个地址了. 原理是，它省略了一个拷贝构造函数
+      如 
+      class Ta{
+        public:
+          mutable int m_i;
+          Ta(int i) : m_i(i){}
+          Ta(const Ta& t) : m_i(t.m_i){}
+     };
+     
+     void print(const A& mybuf){    //不管是使用引用接收还是值接收，编译器统一都将mybuf拷贝一份再传入进去
+                                    //必须有const, 没有const修饰的话，会产生invoke错误
+        mybuf.m_i = 199;
+        std::cout << "子线程print的参数地址是 " << &mybuf << " 线程ID是: " << std::this_thread::get_id() << std::endl;
+     }
+     
+     int main(){
+        A a(10);
+        //std::thread t(print, Ta(a));  //这样的构造是无法将函数中的m_i值199带回main中，因为a传入print时，执行的是一份拷贝
+        //std::thread t(print, &a); //这行代码的效果相当于std::thread t(print, std::ref(a));
+        std::thread t(print, std::ref(a));  //这样print函数中的值的修改才能带回main中。 （std::ref这个好牛叉啊）
+                                        //【注意】当a与局部变量a共同指向一个内存时，得考虑当主线程将a释放掉后，内存中没有空间的情况，所有后面一定
+                                        //要加上join, 而不是detach                                     
+                                        
+        t.join();
+        //t.detach();
+        
+        std::cout << a.m_i  << std::endl;
+            
+        return 0;
+     }
+     
+    【传递智能指针传值】
+    假设传递一个独占式智能指针。
+    unique_ptr<int> pz;
+    独占式智能指针赋值时的用std::move
+    
+    #include <thread>
+    #include <iostream>
+    
+    void print(unique_ptr<int> pz){
+        std::cout << "this thread ID: " << std::this_thread::get_id() << std::endl;    
+    }
+     
+     int main(){
+        unique_ptr<int> pz(new int(100));
+        //std::thread t(print, pz); //程序报智能指针相关得错误
+        std::thread t(print, std::move(pz));  // 使用move将指针临时拷贝， 赋值完后pz将会被清空
+        
+        return 0;     
+     }
+     
+     
+   【类的成员函数传值】
+   指定类中任意一个成员函数进行
+   需要使用&A::memberfunction
+   #include <thread>
+   #include <iostream>
+   
+   class Ta{
+    public:
+      int m_i;
+      void setI(const int i){
+        m_i = i;
+        m_i = 20;
+        std::cout << "thread i: " << i << std::endl;
+      }
+      
+      void getI(int i){
+        i = m_i;
+      }
+   };
+   
+   int main(){
+      Ta ta;
+   
+      //std::thread t(&Ta::setI, ta, 15);     //这种情况，ta的值无法改变
+      //std::thread t(&Ta::setI, &ta, 15);      //这种情况，ta的值才能改变
+      std::thread t(&Ta::setI, std::ref(ta), 15); //这种情况，ta的值才能改变
+      t.join();
+      
+      std::cout << "main thread ta i = " << ta.m_i << std::endl;
+      return 0;
+   }
+   
+   【类的对象来创建线程函数】
+   注意此时使用&跟std::ref不能通用。
+   #include <thread>
+   #include <iostream>
+   
+   class Ta{
+      public:
+       int m_i;
+       Ta(){}
+       void operator()(int num){
+          m_i = num;
+          m_i = 50;
+          std::cout << "thread num: " << num << std::endl;
+       }
+   };
+   
+   int main(){
+    Ta ta;
+    //std::thread t(ta, 20);    //这种格式是错误的， 无法编译
+    //std::thread t(&ta, 20);     //此时也是错误的，无法编译
+    std::thread t(std::ref(ta), 20);  //此时是正确的，这样才能进行值传递。
+    std::cout << "main thread m_i = " << ta.m_i << std::endl;
+    return 0;
+   }
+   
+   
 2.
 3.
 4.
